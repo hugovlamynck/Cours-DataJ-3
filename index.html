@@ -29,7 +29,7 @@
     }).addTo(map);
 
     // Lecture du fichier CSV
-    const csvFilePath = 'lieux_inclusion.csv';
+    const csvFilePath = 'data.csv';
 
     Papa.parse(csvFilePath, {
         download: true,
@@ -37,17 +37,72 @@
         skipEmptyLines: true,
         complete: function(results) {
             const data = results.data;
+            console.log("Données chargées :", data.length, "lieux trouvés.");
             
-            data.forEach(row => {
-                const lat = parseFloat(row.latitude);
-                const lon = parseFloat(row.longitude);
-                const name = row.nom;
+            data.forEach((row, index) => {
+                // Tentative d'extraction des coordonnées (plusieurs colonnes possibles)
+                let lat = parseFloat(row.latitude);
+                let lon = parseFloat(row.longitude);
+                
+                // Si lat/lon sont vides ou invalides, on cherche dans d'autres formats possibles
+                if (isNaN(lat) || isNaN(lon)) {
+                    if (row.geo_point) {
+                        const parts = row.geo_point.split(',');
+                        lat = parseFloat(parts[0]);
+                        lon = parseFloat(parts[1]);
+                    }
+                }
+
+                const name = row.nom || "Lieu sans nom";
                 const description = row.description || "Pas de description disponible.";
-                const adresse = row.adresse_brut;
+                const adresse = row.adresse_brut || row.adresse_rue || "Adresse non spécifiée";
+                const type = row.type_lieu || "Non spécifié";
+                const public = row.public_cible || "Tout public";
+                const contact = row.contact_telephone || row.contact_email || "N/A";
+                const servicesRaw = row.services || "";
+                const levelRaw = row.niveau_service || "";
+
+                // Décodage des "codes" de services
+                // On transforme "TABLETTE/Expert,ORDI/Basique" en une liste propre
+                const formatCodes = (raw) => {
+                    if (!raw) return "Non spécifié";
+                    return raw.split(',')
+                        .map(s => s.trim())
+                        .filter(s => !s.endsWith('/Non')) // On enlève les services non disponibles
+                        .map(s => s.replace('/', ' : ')) // On remplace le slash par " : "
+                        .join('<br>');
+                };
+
+                const servicesClean = formatCodes(levelRaw || servicesRaw);
 
                 if (!isNaN(lat) && !isNaN(lon)) {
                     const marker = L.marker([lat, lon]).addTo(map);
-                    marker.bindPopup(`<b>${name}</b><br>${adresse}<br><br><small>${description.substring(0, 150)}...</small>`);
+
+                    // Information au survol (Tooltip)
+                    marker.bindTooltip(`<b>${name}</b><br><small>${type}</small>`, {
+                        sticky: true,
+                        direction: 'top'
+                    });
+
+                    // Information détaillée au clic (Popup)
+                    marker.bindPopup(`
+                        <div style="max-width: 320px; font-family: sans-serif; font-size: 13px;">
+                            <h3 style="margin: 0 0 10px 0; color: #2c3e50; border-bottom: 2px solid #e74c3c; padding-bottom: 5px;">${name}</h3>
+                            <p style="margin: 5px 0;"><strong>📍 Adresse :</strong> ${adresse}</p>
+                            <p style="margin: 5px 0;"><strong>🏢 Type :</strong> ${type}</p>
+                            <div style="background: #f9f9f9; padding: 10px; border-radius: 5px; margin: 10px 0;">
+                                <strong>🛠 Compétences & Services :</strong><br>
+                                <div style="max-height: 150px; overflow-y: auto; margin-top: 5px;">
+                                    ${servicesClean}
+                                </div>
+                            </div>
+                            <p style="margin: 5px 0;"><strong>👥 Public :</strong> ${public}</p>
+                            <p style="margin: 5px 0;"><strong>⏰ Horaires :</strong> ${horaires}</p>
+                            <p style="margin: 10px 0; font-size: 0.9em; line-height: 1.4; color: #7f8c8d;">${description.substring(0, 200)}...</p>
+                            <p style="margin: 5px 0; border-top: 1px solid #eee; padding-top: 10px;"><strong>📞 Contact :</strong> ${contact}</p>
+                        </div>
+                    `);                } else {
+                    console.warn(`Coordonnées invalides pour la ligne ${index + 1} : ${name}`);
                 }
             });
         },
